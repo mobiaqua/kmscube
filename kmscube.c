@@ -89,6 +89,8 @@ static int init_drm(void)
 	drmModeRes *resources;
 	drmModeConnector *connector = NULL;
 	drmModeEncoder *encoder = NULL;
+	drmModeCrtc *crtc = NULL;
+
 	int i, j;
 	uint32_t maxRes, curRes;
 
@@ -119,10 +121,8 @@ static int init_drm(void)
 	for (i = 0; i < resources->count_connectors; i++) {
 		connector = drmModeGetConnector(drm.fd, resources->connectors[i]);
 		if (connector->connection == DRM_MODE_CONNECTED) {
-			/* choose the first supported mode */
-			drm.mode[drm.ndisp] = &connector->modes[0];
-			drm.connector_id[drm.ndisp] = connector->connector_id;
 
+			/* find the matched encoders */
 			for (j=0; j<resources->count_encoders; j++) {
 				encoder = drmModeGetEncoder(drm.fd, resources->encoders[j]);
 				if (encoder->encoder_id == connector->encoder_id)
@@ -136,6 +136,35 @@ static int init_drm(void)
 				printf("no encoder!\n");
 				return -1;
 			}
+
+			/* choose the current or first supported mode */
+			crtc = drmModeGetCrtc(drm.fd, encoder->crtc_id);
+			for (j = 0; j < connector->count_modes; j++)
+			{
+				if (crtc->mode_valid)
+				{
+					if ((connector->modes[j].hdisplay == crtc->width) &&
+					(connector->modes[j].vdisplay == crtc->height))
+					{
+						drm.mode[drm.ndisp] = &connector->modes[j];
+						break;
+					}
+				}
+				else
+				{
+					if ((connector->modes[j].hdisplay == crtc->x) &&
+					   (connector->modes[j].vdisplay == crtc->y))
+					{
+						drm.mode[drm.ndisp] = &connector->modes[j];
+						break;
+					}
+				}
+			}
+
+			if(j >= connector->count_modes)
+				drm.mode[drm.ndisp] = &connector->modes[0];
+
+			drm.connector_id[drm.ndisp] = connector->connector_id;
 
 			drm.encoder[drm.ndisp]  = (uint32_t) encoder;
 			drm.crtc_id[drm.ndisp] = encoder->crtc_id;
