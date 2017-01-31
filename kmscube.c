@@ -91,7 +91,7 @@ static int init_drm(void)
 	drmModeEncoder *encoder = NULL;
 	drmModeCrtc *crtc = NULL;
 
-	int i, j;
+	int i, j, k;
 	uint32_t maxRes, curRes;
 
 	for (i = 0; i < ARRAY_SIZE(modules); i++) {
@@ -123,18 +123,49 @@ static int init_drm(void)
 		if (connector->connection == DRM_MODE_CONNECTED) {
 
 			/* find the matched encoders */
-			for (j=0; j<resources->count_encoders; j++) {
-				encoder = drmModeGetEncoder(drm.fd, resources->encoders[j]);
+			for (j=0; j<connector->count_encoders; j++) {
+				encoder = drmModeGetEncoder(drm.fd, connector->encoders[j]);
+
+				/* Take the fisrt one, if none is assigned */
+				if (!connector->encoder_id)
+				{
+					connector->encoder_id = encoder->encoder_id;
+				}
+
 				if (encoder->encoder_id == connector->encoder_id)
+				{
+					/* find the first valid CRTC if not assigned */
+					if (!encoder->crtc_id)
+					{
+						for (k = 0; k < resources->count_crtcs; ++k) {
+							/* check whether this CRTC works with the encoder */
+							if (!(encoder->possible_crtcs & (1 << k)))
+								continue;
+
+							encoder->crtc_id = resources->crtcs[k];
+							break;
+						}
+
+						if (!encoder->crtc_id)
+						{
+							printf("Encoder(%d): no CRTC find!\n", encoder->encoder_id);
+							drmModeFreeEncoder(encoder);
+							encoder = NULL;
+							continue;
+						}
+					}
+
 					break;
+				}
 
 				drmModeFreeEncoder(encoder);
 				encoder = NULL;
 			}
 
 			if (!encoder) {
-				printf("no encoder!\n");
-				return -1;
+				printf("Connector (%d): no encoder!\n", connector->connector_id);
+				drmModeFreeConnector(connector);
+				continue;
 			}
 
 			/* choose the current or first supported mode */
