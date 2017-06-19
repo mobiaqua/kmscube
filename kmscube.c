@@ -31,12 +31,14 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include <errno.h>
 #include <signal.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <drm_fourcc.h>
 #include <gbm.h>
 
 #include "esUtil.h"
@@ -72,6 +74,7 @@ static struct {
 	uint32_t connector_id[MAX_DISPLAYS];
 	uint32_t resource_id;
 	uint32_t encoder[MAX_DISPLAYS];
+	uint32_t format[MAX_DISPLAYS];
 	drmModeModeInfo *mode[MAX_DISPLAYS];
 	drmModeConnector *connectors[MAX_DISPLAYS];
 } drm;
@@ -80,6 +83,141 @@ struct drm_fb {
 	struct gbm_bo *bo;
 	uint32_t fb_id;
 };
+
+static uint32_t drm_fmt_to_gbm_fmt(uint32_t fmt)
+{
+	switch (fmt) {
+		case DRM_FORMAT_XRGB8888:
+			return GBM_FORMAT_XRGB8888;
+		case DRM_FORMAT_ARGB8888:
+			return GBM_FORMAT_ARGB8888;
+		case DRM_FORMAT_RGB565:
+			return GBM_FORMAT_RGB565;
+		default:
+			printf("Unsupported DRM format: 0x%x", fmt);
+			return GBM_FORMAT_XRGB8888;
+	}
+}
+
+static bool search_plane_format(uint32_t desired_format, int formats_count, uint32_t* formats)
+{
+	int i;
+
+	for ( i = 0; i < formats_count; i++)
+	{
+		if (desired_format == formats[i])
+			return true;
+	}
+
+	return false;
+}
+
+int get_drm_prop_val(int fd, drmModeObjectPropertiesPtr props,
+	                 const char *name, unsigned int *p_val) {
+	drmModePropertyPtr p;
+	unsigned int i, prop_id = 0; /* Property ID should always be > 0 */
+
+	for (i = 0; !prop_id && i < props->count_props; i++) {
+		p = drmModeGetProperty(fd, props->props[i]);
+		if (!strcmp(p->name, name)){
+			prop_id = p->prop_id;
+			break;
+		}
+		drmModeFreeProperty(p);
+	}
+
+	if (!prop_id) {
+		printf("Could not find %s property\n", name);
+		return(-1);
+	}
+
+	drmModeFreeProperty(p);
+	*p_val = props->prop_values[i];
+	return 0;
+}
+
+static bool set_drm_format(void)
+{
+	/* desired DRM format in order */
+	static const uint32_t drm_formats[] = {DRM_FORMAT_XRGB8888, DRM_FORMAT_ARGB8888, DRM_FORMAT_RGB565};
+	drmModePlaneRes *plane_res;
+	bool found = false;
+	int i,k;
+
+	drmSetClientCap(drm.fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+
+	plane_res  = drmModeGetPlaneResources(drm.fd);
+
+	if (!plane_res) {
+		printf("drmModeGetPlaneResources failed: %s\n", strerror(errno));
+		drmSetClientCap(drm.fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 0);
+		return false;
+	}
+
+	/*
+	 * find the plane connected to crtc_id (the primary plane) and then find the desired pixel format
+	 * from the plane format list
+	 */
+	for (i = 0; i < plane_res->count_planes; i++)
+	{
+		drmModePlane *plane = drmModeGetPlane(drm.fd, plane_res->planes[i]);
+		drmModeObjectProperties *props;
+		unsigned int plane_type;
+
+		if(plane == NULL)
+			continue;
+
+		props = drmModeObjectGetProperties(drm.fd, plane->plane_id, DRM_MODE_OBJECT_PLANE);
+
+		if(props == NULL){
+			printf("plane (%d) properties not found\n",  plane->plane_id);
+			drmModeFreePlane(plane);
+			continue;
+		}
+
+		if(get_drm_prop_val(drm.fd, props, "type",  &plane_type) < 0)
+		{
+			printf("plane (%d) type value not found\n",  plane->plane_id);
+			drmModeFreeObjectProperties(props);
+			drmModeFreePlane(plane);
+			continue;
+		}
+
+		if (plane_type != DRM_PLANE_TYPE_PRIMARY)
+		{
+			drmModeFreeObjectProperties(props);
+			drmModeFreePlane(plane);
+			continue;
+		}
+		else if (!plane->crtc_id)
+		{
+			plane->crtc_id = drm.crtc_id[drm.ndisp];
+		}
+
+		drmModeFreeObjectProperties(props);
+
+		if (plane->crtc_id == drm.crtc_id[drm.ndisp])
+		{
+			for (k = 0; k < ARRAY_SIZE(drm_formats); k++)
+			{
+				if (search_plane_format(drm_formats[k], plane->count_formats, plane->formats))
+				{
+					drm.format[drm.ndisp] = drm_formats[k];
+					drmModeFreePlane(plane);
+					drmModeFreePlaneResources(plane_res);
+					drmSetClientCap(drm.fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 0);
+					return true;
+				}
+			}
+		}
+
+		drmModeFreePlane(plane);
+	}
+
+	drmModeFreePlaneResources(plane_res);
+	drmSetClientCap(drm.fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 0);
+	return false;
+}
 
 static int init_drm(void)
 {
@@ -201,7 +339,14 @@ static int init_drm(void)
 			drm.crtc_id[drm.ndisp] = encoder->crtc_id;
 			drm.connectors[drm.ndisp] = connector;
 
-			printf("### Display [%d]: CRTC = %d, Connector = %d\n", drm.ndisp, drm.crtc_id[drm.ndisp], drm.connector_id[drm.ndisp]);
+			if (!set_drm_format())
+			{
+				// Error handling
+				printf("No desired pixel format found!\n");
+				return -1;
+			}
+
+			printf("### Display [%d]: CRTC = %d, Connector = %d, format = 0x%x\n", drm.ndisp, drm.crtc_id[drm.ndisp], drm.connector_id[drm.ndisp], drm.format[drm.ndisp]);
 			printf("\tMode chosen [%s] : Clock => %d, Vertical refresh => %d, Type => %d\n", drm.mode[drm.ndisp]->name, drm.mode[drm.ndisp]->clock, drm.mode[drm.ndisp]->vrefresh, drm.mode[drm.ndisp]->type);
 			printf("\tHorizontal => %d, %d, %d, %d, %d\n", drm.mode[drm.ndisp]->hdisplay, drm.mode[drm.ndisp]->hsync_start, drm.mode[drm.ndisp]->hsync_end, drm.mode[drm.ndisp]->htotal, drm.mode[drm.ndisp]->hskew);
 			printf("\tVertical => %d, %d, %d, %d, %d\n", drm.mode[drm.ndisp]->vdisplay, drm.mode[drm.ndisp]->vsync_start, drm.mode[drm.ndisp]->vsync_end, drm.mode[drm.ndisp]->vtotal, drm.mode[drm.ndisp]->vscan);
@@ -243,7 +388,7 @@ static int init_gbm(void)
 
 	gbm.surface = gbm_surface_create(gbm.dev,
 			drm.mode[DISP_ID]->hdisplay, drm.mode[DISP_ID]->vdisplay,
-			GBM_FORMAT_XRGB8888,
+			drm_fmt_to_gbm_fmt(drm.format[DISP_ID]),
 			GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
 	if (!gbm.surface) {
 		printf("failed to create gbm surface\n");
@@ -649,7 +794,8 @@ drm_fb_destroy_callback(struct gbm_bo *bo, void *data)
 static struct drm_fb * drm_fb_get_from_bo(struct gbm_bo *bo)
 {
 	struct drm_fb *fb = gbm_bo_get_user_data(bo);
-	uint32_t width, height, stride, handle;
+	uint32_t width, height, format;
+	uint32_t bo_handles[4] = {0}, offsets[4] = {0}, pitches[4] = {0};
 	int ret;
 
 	if (fb)
@@ -660,10 +806,11 @@ static struct drm_fb * drm_fb_get_from_bo(struct gbm_bo *bo)
 
 	width = gbm_bo_get_width(bo);
 	height = gbm_bo_get_height(bo);
-	stride = gbm_bo_get_stride(bo);
-	handle = gbm_bo_get_handle(bo).u32;
+	pitches[0] = gbm_bo_get_stride(bo);
+	bo_handles[0] = gbm_bo_get_handle(bo).u32;
+	format = gbm_bo_get_format(bo);
 
-	ret = drmModeAddFB(drm.fd, width, height, 24, 32, stride, handle, &fb->fb_id);
+	ret = drmModeAddFB2(drm.fd, width, height, format, bo_handles, pitches, offsets, &fb->fb_id, 0);
 	if (ret) {
 		printf("failed to create fb: %s\n", strerror(errno));
 		free(fb);
