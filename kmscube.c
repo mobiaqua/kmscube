@@ -826,7 +826,7 @@ static void page_flip_handler(int fd, unsigned int frame,
 		  unsigned int sec, unsigned int usec, void *data)
 {
 	int *waiting_for_flip = data;
-	*waiting_for_flip = 0;
+	*waiting_for_flip = *waiting_for_flip - 1;
 }
 
 void print_usage()
@@ -955,7 +955,8 @@ int main(int argc, char *argv[])
 
 	while (frame_count != 0) {
 		struct gbm_bo *next_bo;
-		int waiting_for_flip = 1;
+		int waiting_for_flip;
+		int cc;
 
 		draw(i++);
 
@@ -968,11 +969,24 @@ int main(int argc, char *argv[])
 		 * hw composition
 		 */
 
-		ret = drmModePageFlip(drm.fd, drm.crtc_id[DISP_ID], fb->fb_id,
-				DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
-		if (ret) {
-			printf("failed to queue page flip: %s\n", strerror(errno));
-			return -1;
+		if (all_display) {
+			for (cc=0;cc<drm.ndisp; cc++) {
+				ret = drmModePageFlip(drm.fd, drm.crtc_id[cc], fb->fb_id,
+					DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
+				if (ret) {
+					printf("failed to queue page flip: %s\n", strerror(errno));
+					return -1;
+				}
+			}
+			waiting_for_flip = drm.ndisp;
+		} else {
+			ret = drmModePageFlip(drm.fd, drm.crtc_id[DISP_ID], fb->fb_id,
+					DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
+			if (ret) {
+				printf("failed to queue page flip: %s\n", strerror(errno));
+				return -1;
+			}
+			waiting_for_flip = 1;
 		}
 
 		while (waiting_for_flip) {
