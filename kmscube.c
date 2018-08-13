@@ -222,7 +222,7 @@ static bool set_drm_format(void)
 static int init_drm(void)
 {
 	static const char *modules[] = {
-			"omapdrm", "tilcdc", "i915", "radeon", "nouveau", "vmwgfx", "exynos"
+			"omapdrm", "tilcdc", "tidss", "i915", "radeon", "nouveau", "vmwgfx", "exynos"
 	};
 	drmModeRes *resources;
 	drmModeConnector *connector = NULL;
