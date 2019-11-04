@@ -863,7 +863,7 @@ int main(int argc, char *argv[])
 	signal(SIGINT, kms_signalhandler);
 	signal(SIGTERM, kms_signalhandler);
 
-	while ((opt = getopt(argc, argv, "ahcd:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "ahc:d:n:")) != -1) {
 		switch(opt) {
 		case 'a':
 			all_display = 1;
