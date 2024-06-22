@@ -49,7 +49,6 @@
 uint8_t DISP_ID = 0;
 uint8_t all_display = 0;
 int8_t connector_id = -1;
-char* device = "/dev/dri/card0";
 
 static struct {
 	EGLDisplay display;
@@ -226,22 +225,31 @@ static int init_drm(void)
 	drmModeConnector *connector = NULL;
 	drmModeEncoder *encoder = NULL;
 	drmModeCrtc *crtc = NULL;
+	drmDevice *devices[DRM_MAX_MINOR] = { 0 };
 
-	int i, j, k;
+	int i, j, k, card_count;
 	uint32_t maxRes, curRes;
 
-	/* Open default dri device */
-	drm.fd = open(device, O_RDWR | O_CLOEXEC);
+	card_count = drmGetDevices2(0, devices, ARRAY_SIZE(devices));
+	for (int i = 0; i < card_count; i++) {
+		drmDevice *dev = devices[i];
+		if (!(dev->available_nodes & (1 << DRM_NODE_PRIMARY))) {
+			continue;
+		}
+		drm.fd  = open(dev->nodes[DRM_NODE_PRIMARY], O_RDWR | O_CLOEXEC);
+		resources = drmModeGetResources(drm.fd);
+		if (!resources) {
+			close(drm.fd );
+			drm.fd = -1;
+			continue;
+		}
+		break;
+	}
 	if (drm.fd < 0) {
-		printf("could not open drm device %s\n", device);
+		printf("could not open drm device\n");
 		return -1;
 	}
 
-	resources = drmModeGetResources(drm.fd);
-	if (!resources) {
-		printf("drmModeGetResources failed: %s\n", strerror(errno));
-		return -1;
-	}
 	drm.resource = resources;
 
 	/* find a connected connector: */
@@ -821,7 +829,6 @@ void print_usage()
 	printf("\t-h : Help\n");
 	printf("\t-a : Enable all displays\n");
 	printf("\t-c <id> : Display using connector_id [if not specified, use the first connected connector]\n");
-	printf("\t-d /dev/dri/cardX : DRM device to be used. [If not specified, use /dev/dri/card0]\n");
 	printf("\t-n <number> (optional): Number of frames to render\n");
 }
 
@@ -860,7 +867,7 @@ int main(int argc, char *argv[])
 	signal(SIGINT, kms_signalhandler);
 	signal(SIGTERM, kms_signalhandler);
 
-	while ((opt = getopt(argc, argv, "ahc:d:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "ahc:n:")) != -1) {
 		switch(opt) {
 		case 'a':
 			all_display = 1;
@@ -872,9 +879,6 @@ int main(int argc, char *argv[])
 
 		case 'c':
 			connector_id = atoi(optarg);
-			break;
-		case 'd':
-			device = optarg;
 			break;
 		case 'n':
 			frame_count = atoi(optarg);
