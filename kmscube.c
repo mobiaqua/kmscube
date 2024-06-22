@@ -73,8 +73,8 @@ static struct {
 	uint32_t ndisp;
 	uint32_t crtc_id[MAX_DISPLAYS];
 	uint32_t connector_id[MAX_DISPLAYS];
-	uint32_t resource_id;
-	uint32_t encoder[MAX_DISPLAYS];
+	drmModeResPtr resource;
+	drmModeEncoderPtr encoder[MAX_DISPLAYS];
 	uint32_t format[MAX_DISPLAYS];
 	drmModeModeInfo *mode[MAX_DISPLAYS];
 	drmModeConnector *connectors[MAX_DISPLAYS];
@@ -242,7 +242,7 @@ static int init_drm(void)
 		printf("drmModeGetResources failed: %s\n", strerror(errno));
 		return -1;
 	}
-	drm.resource_id = (uint32_t) resources;
+	drm.resource = resources;
 
 	/* find a connected connector: */
 	for (i = 0; i < resources->count_connectors; i++) {
@@ -324,7 +324,7 @@ static int init_drm(void)
 
 			drm.connector_id[drm.ndisp] = connector->connector_id;
 
-			drm.encoder[drm.ndisp]  = (uint32_t) encoder;
+			drm.encoder[drm.ndisp] = encoder;
 			drm.crtc_id[drm.ndisp] = encoder->crtc_id;
 			drm.connectors[drm.ndisp] = connector;
 
@@ -696,15 +696,15 @@ static void exit_gl(void)
 
 static void exit_drm(void)
 {
-	drmModeRes *resources;
+	drmModeResPtr resources;
 	int i;
 
-	resources = (drmModeRes *)drm.resource_id;
+	resources = drm.resource;
 	for (i = 0; i < resources->count_connectors; i++) {
 		drmModeFreeEncoder(drm.encoder[i]);
 		drmModeFreeConnector(drm.connectors[i]);
 	}
-	drmModeFreeResources(drm.resource_id);
+	drmModeFreeResources(drm.resource);
 	close(drm.fd);
 	return;
 }
@@ -825,7 +825,7 @@ void print_usage()
 	printf("\t-n <number> (optional): Number of frames to render\n");
 }
 
-int kms_signalhandler(int signum)
+void kms_signalhandler(int signum)
 {
 	switch(signum) {
 	case SIGINT:
