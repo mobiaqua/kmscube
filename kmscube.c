@@ -302,7 +302,7 @@ static int init_drm(void)
 				if (crtc->mode_valid)
 				{
 					if ((connector->modes[j].hdisplay == crtc->width) &&
-					(connector->modes[j].vdisplay == crtc->height))
+					    (connector->modes[j].vdisplay == crtc->height))
 					{
 						drm.mode[drm.ndisp] = &connector->modes[j];
 						break;
@@ -311,7 +311,7 @@ static int init_drm(void)
 				else
 				{
 					if ((connector->modes[j].hdisplay == crtc->x) &&
-					   (connector->modes[j].vdisplay == crtc->y))
+					    (connector->modes[j].vdisplay == crtc->y))
 					{
 						drm.mode[drm.ndisp] = &connector->modes[j];
 						break;
@@ -376,9 +376,9 @@ static int init_gbm(void)
 	gbm.dev = gbm_create_device(drm.fd);
 
 	gbm.surface = gbm_surface_create(gbm.dev,
-			drm.mode[DISP_ID]->hdisplay, drm.mode[DISP_ID]->vdisplay,
-			drm_fmt_to_gbm_fmt(drm.format[DISP_ID]),
-			GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+	                                 drm.mode[DISP_ID]->hdisplay, drm.mode[DISP_ID]->vdisplay,
+	                                 drm_fmt_to_gbm_fmt(drm.format[DISP_ID]),
+	                                 GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
 	if (!gbm.surface) {
 		printf("failed to create gbm surface\n");
 		return -1;
@@ -548,7 +548,7 @@ static int init_gl(void)
 	}
 
 	printf("Using display %p with EGL version %d.%d\n",
-			gl.display, major, minor);
+	       gl.display, major, minor);
 
 	printf("EGL Version \"%s\"\n", eglQueryString(gl.display, EGL_VERSION));
 	printf("EGL Vendor \"%s\"\n", eglQueryString(gl.display, EGL_VENDOR));
@@ -679,37 +679,34 @@ static int init_gl(void)
 
 static void exit_gbm(void)
 {
-        gbm_surface_destroy(gbm.surface);
-        gbm_device_destroy(gbm.dev);
-        return;
+	gbm_surface_destroy(gbm.surface);
+	gbm_device_destroy(gbm.dev);
 }
 
 static void exit_gl(void)
 {
-        glDeleteProgram(gl.program);
-        glDeleteBuffers(1, &gl.vbo);
-        glDeleteShader(gl.fragment_shader);
-        glDeleteShader(gl.vertex_shader);
-        eglDestroySurface(gl.display, gl.surface);
-        eglDestroyContext(gl.display, gl.context);
-        eglTerminate(gl.display);
-        return;
+	glDeleteProgram(gl.program);
+	glDeleteBuffers(1, &gl.vbo);
+	glDeleteShader(gl.fragment_shader);
+	glDeleteShader(gl.vertex_shader);
+	eglDestroySurface(gl.display, gl.surface);
+	eglDestroyContext(gl.display, gl.context);
+	eglTerminate(gl.display);
 }
 
 static void exit_drm(void)
 {
+	drmModeRes *resources;
+	int i;
 
-        drmModeRes *resources;
-        int i;
-
-        resources = (drmModeRes *)drm.resource_id;
-        for (i = 0; i < resources->count_connectors; i++) {
-                drmModeFreeEncoder(drm.encoder[i]);
-                drmModeFreeConnector(drm.connectors[i]);
-        }
-        drmModeFreeResources(drm.resource_id);
-        close(drm.fd);
-        return;
+	resources = (drmModeRes *)drm.resource_id;
+	for (i = 0; i < resources->count_connectors; i++) {
+		drmModeFreeEncoder(drm.encoder[i]);
+		drmModeFreeConnector(drm.connectors[i]);
+	}
+	drmModeFreeResources(drm.resource_id);
+	close(drm.fd);
+	return;
 }
 
 void cleanup_kmscube(void)
@@ -812,7 +809,7 @@ static struct drm_fb * drm_fb_get_from_bo(struct gbm_bo *bo)
 }
 
 static void page_flip_handler(int fd, unsigned int frame,
-		  unsigned int sec, unsigned int usec, void *data)
+                              unsigned int sec, unsigned int usec, void *data)
 {
 	int *waiting_for_flip = data;
 	*waiting_for_flip = *waiting_for_flip - 1;
@@ -832,11 +829,11 @@ int kms_signalhandler(int signum)
 {
 	switch(signum) {
 	case SIGINT:
-        case SIGTERM:
-                /* Allow the pending page flip requests to be completed before
-                 * the teardown sequence */
-                sleep(1);
-                printf("Handling signal number = %d\n", signum);
+	case SIGTERM:
+		/* Allow the pending page flip requests to be completed before
+		 * the teardown sequence */
+		sleep(1);
+		printf("Handling signal number = %d\n", signum);
 		cleanup_kmscube();
 		break;
 	default:
@@ -902,8 +899,8 @@ int main(int argc, char *argv[])
 		return ret;
 	}
 	printf("### Primary display => ConnectorId = %d, Resolution = %dx%d\n",
-			drm.connector_id[DISP_ID], drm.mode[DISP_ID]->hdisplay,
-			drm.mode[DISP_ID]->vdisplay);
+	       drm.connector_id[DISP_ID], drm.mode[DISP_ID]->hdisplay,
+	       drm.mode[DISP_ID]->vdisplay);
 
 	FD_ZERO(&fds);
 	FD_SET(drm.fd, &fds);
@@ -931,7 +928,7 @@ int main(int argc, char *argv[])
 	if (all_display) {
 		for (i=0; i<drm.ndisp; i++) {
 			ret = drmModeSetCrtc(drm.fd, drm.crtc_id[i], fb->fb_id, 0, 0,
-					&drm.connector_id[i], 1, drm.mode[i]);
+			                     &drm.connector_id[i], 1, drm.mode[i]);
 			if (ret) {
 				printf("display %d failed to set mode: %s\n", i, strerror(errno));
 				return ret;
@@ -939,7 +936,7 @@ int main(int argc, char *argv[])
 		}
 	} else {
 		ret = drmModeSetCrtc(drm.fd, drm.crtc_id[DISP_ID], fb->fb_id,
-				0, 0, &drm.connector_id[DISP_ID], 1, drm.mode[DISP_ID]);
+		                     0, 0, &drm.connector_id[DISP_ID], 1, drm.mode[DISP_ID]);
 		if (ret) {
 			printf("display %d failed to set mode: %s\n", DISP_ID, strerror(errno));
 			return ret;
@@ -965,7 +962,7 @@ int main(int argc, char *argv[])
 		if (all_display) {
 			for (cc=0;cc<drm.ndisp; cc++) {
 				ret = drmModePageFlip(drm.fd, drm.crtc_id[cc], fb->fb_id,
-					DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
+				                      DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
 				if (ret) {
 					printf("failed to queue page flip: %s\n", strerror(errno));
 					return -1;
@@ -974,7 +971,7 @@ int main(int argc, char *argv[])
 			waiting_for_flip = drm.ndisp;
 		} else {
 			ret = drmModePageFlip(drm.fd, drm.crtc_id[DISP_ID], fb->fb_id,
-					DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
+			                      DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
 			if (ret) {
 				printf("failed to queue page flip: %s\n", strerror(errno));
 				return -1;
@@ -1000,8 +997,8 @@ int main(int argc, char *argv[])
 		gbm_surface_release_buffer(gbm.surface, bo);
 		bo = next_bo;
 
-                if(frame_count >= 0)
-		        frame_count--;
+		if(frame_count >= 0)
+			frame_count--;
 	}
 
 	cleanup_kmscube();
